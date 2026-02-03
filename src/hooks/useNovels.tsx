@@ -1,128 +1,127 @@
 import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { Tables, TablesInsert, TablesUpdate } from '@/integrations/supabase/types';
 
-export interface Novel {
-  id: string;
-  title: string;
-  cover_url: string | null;
-  description: string | null;
-  author: string | null;
-  genre: string[] | null;
-  status: 'ongoing' | 'completed';
-  is_official: boolean;
-  is_must_read: boolean;
-  view_count: number;
-  created_at: string;
-  updated_at: string;
-}
+export type Novel = Tables<'novels'>;
+export type Chapter = Tables<'chapters'>;
 
-export interface Chapter {
-  id: string;
-  novel_id: string;
-  number: number;
-  title: string;
-  content_en: string | null;
-  content_id: string | null;
-  epub_en_url: string | null;
-  epub_id_url: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-const NOVELS_STORAGE_KEY = 'novels_data';
-const CHAPTERS_STORAGE_KEY = 'chapters_data';
-
-export function getNovelsFromStorage(): Novel[] {
-  const stored = localStorage.getItem(NOVELS_STORAGE_KEY);
-  return stored ? JSON.parse(stored) : [];
-}
-
-export function saveNovelsToStorage(novels: Novel[]) {
-  localStorage.setItem(NOVELS_STORAGE_KEY, JSON.stringify(novels));
-}
-
-export function getChaptersFromStorage(): Chapter[] {
-  const stored = localStorage.getItem(CHAPTERS_STORAGE_KEY);
-  return stored ? JSON.parse(stored) : [];
-}
-
-export function saveChaptersToStorage(chapters: Chapter[]) {
-  localStorage.setItem(CHAPTERS_STORAGE_KEY, JSON.stringify(chapters));
-}
-
-export function addNovel(novel: Omit<Novel, 'id' | 'created_at' | 'updated_at' | 'view_count'>): Novel {
-  const novels = getNovelsFromStorage();
-  const newNovel: Novel = {
-    ...novel,
-    id: Date.now().toString(),
-    is_must_read: (novel as any).is_must_read ?? false,
-    view_count: 0,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-  novels.push(newNovel);
-  saveNovelsToStorage(novels);
-  return newNovel;
-}
-
-export function updateNovel(id: string, updates: Partial<Novel>): Novel | null {
-  const novels = getNovelsFromStorage();
-  const index = novels.findIndex(n => n.id === id);
-  if (index === -1) return null;
+export async function addNovel(novel: Omit<TablesInsert<'novels'>, 'id' | 'created_at' | 'updated_at' | 'view_count'>): Promise<Novel | null> {
+  const { data, error } = await supabase
+    .from('novels')
+    .insert({
+      ...novel,
+      view_count: 0,
+    })
+    .select()
+    .single();
   
-  novels[index] = { ...novels[index], ...updates, updated_at: new Date().toISOString() };
-  saveNovelsToStorage(novels);
-  return novels[index];
+  if (error) {
+    console.error('Error adding novel:', error);
+    return null;
+  }
+  
+  window.dispatchEvent(new Event('novelsUpdated'));
+  return data;
 }
 
-export function updateChapter(id: string, updates: Partial<Chapter>): Chapter | null {
-  const chapters = getChaptersFromStorage();
-  const index = chapters.findIndex(c => c.id === id);
-  if (index === -1) return null;
+export async function updateNovel(id: string, updates: TablesUpdate<'novels'>): Promise<Novel | null> {
+  const { data, error } = await supabase
+    .from('novels')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
   
-  chapters[index] = { ...chapters[index], ...updates, updated_at: new Date().toISOString() };
-  saveChaptersToStorage(chapters);
-  return chapters[index];
+  if (error) {
+    console.error('Error updating novel:', error);
+    return null;
+  }
+  
+  window.dispatchEvent(new Event('novelsUpdated'));
+  return data;
 }
 
-export function deleteNovel(id: string): boolean {
-  const novels = getNovelsFromStorage();
-  const filtered = novels.filter(n => n.id !== id);
-  if (filtered.length === novels.length) return false;
+export async function updateChapter(id: string, updates: TablesUpdate<'chapters'>): Promise<Chapter | null> {
+  const { data, error } = await supabase
+    .from('chapters')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
   
-  saveNovelsToStorage(filtered);
+  if (error) {
+    console.error('Error updating chapter:', error);
+    return null;
+  }
   
-  const chapters = getChaptersFromStorage();
-  saveChaptersToStorage(chapters.filter(c => c.novel_id !== id));
+  return data;
+}
+
+export async function deleteNovel(id: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('novels')
+    .delete()
+    .eq('id', id);
   
+  if (error) {
+    console.error('Error deleting novel:', error);
+    return false;
+  }
+  
+  window.dispatchEvent(new Event('novelsUpdated'));
   return true;
 }
 
-export function addChapters(novelId: string, newChapters: Omit<Chapter, 'id' | 'novel_id' | 'created_at' | 'updated_at'>[]): Chapter[] {
-  const chapters = getChaptersFromStorage();
-  const addedChapters: Chapter[] = newChapters.map((ch, index) => ({
+export async function addChapters(
+  novelId: string, 
+  newChapters: Omit<TablesInsert<'chapters'>, 'id' | 'novel_id' | 'created_at' | 'updated_at'>[]
+): Promise<Chapter[]> {
+  const chaptersToInsert = newChapters.map(ch => ({
     ...ch,
-    id: `${novelId}_${Date.now()}_${index}`,
     novel_id: novelId,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
   }));
+
+  const { data, error } = await supabase
+    .from('chapters')
+    .insert(chaptersToInsert)
+    .select();
   
-  chapters.push(...addedChapters);
-  saveChaptersToStorage(chapters);
-  return addedChapters;
+  if (error) {
+    console.error('Error adding chapters:', error);
+    return [];
+  }
+  
+  return data || [];
 }
 
-export function getChaptersByNovelId(novelId: string): Chapter[] {
-  const chapters = getChaptersFromStorage();
-  return chapters.filter(c => c.novel_id === novelId).sort((a, b) => a.number - b.number);
+export async function getChaptersByNovelId(novelId: string): Promise<Chapter[]> {
+  const { data, error } = await supabase
+    .from('chapters')
+    .select('*')
+    .eq('novel_id', novelId)
+    .order('number', { ascending: true });
+  
+  if (error) {
+    console.error('Error fetching chapters:', error);
+    return [];
+  }
+  
+  return data || [];
 }
 
-export function incrementViewCount(id: string) {
-  const novels = getNovelsFromStorage();
-  const index = novels.findIndex(n => n.id === id);
-  if (index !== -1) {
-    novels[index].view_count = (novels[index].view_count || 0) + 1;
-    saveNovelsToStorage(novels);
+export async function incrementViewCount(id: string) {
+  const { data: novel } = await supabase
+    .from('novels')
+    .select('view_count')
+    .eq('id', id)
+    .single();
+
+  if (novel) {
+    await supabase
+      .from('novels')
+      .update({ view_count: (novel.view_count || 0) + 1 })
+      .eq('id', id);
+    
     window.dispatchEvent(new Event('novelsUpdated'));
   }
 }
@@ -132,24 +131,33 @@ export function useNovels() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchNovels = useCallback(() => {
-    setNovels(getNovelsFromStorage());
+  const fetchNovels = useCallback(async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('novels')
+      .select('*')
+      .order('created_at', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching novels:', error);
+      setError(error.message);
+    } else {
+      setNovels(data || []);
+    }
     setLoading(false);
   }, []);
 
   useEffect(() => {
     fetchNovels();
     
-    const handleStorageChange = () => {
+    const handleUpdate = () => {
       fetchNovels();
     };
     
-    window.addEventListener('storage', handleStorageChange);
-    window.addEventListener('novelsUpdated', handleStorageChange);
+    window.addEventListener('novelsUpdated', handleUpdate);
     
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      window.removeEventListener('novelsUpdated', handleStorageChange);
+      window.removeEventListener('novelsUpdated', handleUpdate);
     };
   }, [fetchNovels]);
 
@@ -163,15 +171,42 @@ export function useNovelDetails(id: string) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const novels = getNovelsFromStorage();
-    const found = novels.find(n => n.id === id);
-    setNovel(found || null);
-    
-    if (found) {
-      setChapters(getChaptersByNovelId(id));
+    async function fetchData() {
+      setLoading(true);
+      
+      const { data: novelData, error: novelError } = await supabase
+        .from('novels')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+      
+      if (novelError) {
+        console.error('Error fetching novel:', novelError);
+        setError(novelError.message);
+        setLoading(false);
+        return;
+      }
+      
+      setNovel(novelData);
+      
+      if (novelData) {
+        const { data: chaptersData, error: chaptersError } = await supabase
+          .from('chapters')
+          .select('*')
+          .eq('novel_id', id)
+          .order('number', { ascending: true });
+        
+        if (chaptersError) {
+          console.error('Error fetching chapters:', chaptersError);
+        } else {
+          setChapters(chaptersData || []);
+        }
+      }
+      
+      setLoading(false);
     }
     
-    setLoading(false);
+    fetchData();
   }, [id]);
 
   return { novel, chapters, loading, error };
