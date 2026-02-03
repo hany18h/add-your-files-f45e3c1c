@@ -14,6 +14,7 @@ import {
   Chapter
 } from '@/hooks/useNovels';
 import { parseEpubFile } from '@/utils/epubParser';
+import { supabase } from '@/integrations/supabase/client';
 
 const Admin = () => {
   const navigate = useNavigate();
@@ -29,12 +30,29 @@ const Admin = () => {
   const [editStatus, setEditStatus] = useState<'ongoing' | 'completed'>('ongoing');
   const [showChapterEditor, setShowChapterEditor] = useState<string | null>(null);
   const [editingChapter, setEditingChapter] = useState<Chapter | null>(null);
+  const [chapterCounts, setChapterCounts] = useState<{ [key: string]: number }>({});
+  const [novelChapters, setNovelChapters] = useState<{ [key: string]: Chapter[] }>({});
 
   useEffect(() => {
     if (!authLoading && (!user || !isAdmin)) {
       navigate('/auth');
     }
   }, [user, isAdmin, authLoading, navigate]);
+
+  // Load chapter counts for all novels
+  useEffect(() => {
+    async function loadChapterCounts() {
+      const counts: { [key: string]: number } = {};
+      for (const novel of novels) {
+        const chapters = await getChaptersByNovelId(novel.id);
+        counts[novel.id] = chapters.length;
+      }
+      setChapterCounts(counts);
+    }
+    if (novels.length > 0) {
+      loadChapterCounts();
+    }
+  }, [novels]);
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -51,7 +69,7 @@ const Admin = () => {
       
       setUploadProgress(`Found ${parsed.chapters.length} chapters. Creating novel...`);
 
-      const novel = addNovel({
+      const novel = await addNovel({
         title: parsed.title,
         author: parsed.author,
         cover_url: parsed.coverUrl,
@@ -62,9 +80,13 @@ const Admin = () => {
         is_must_read: false,
       });
 
+      if (!novel) {
+        throw new Error('Failed to create novel');
+      }
+
       setUploadProgress('Adding chapters...');
 
-      addChapters(novel.id, parsed.chapters.map(ch => ({
+      await addChapters(novel.id, parsed.chapters.map(ch => ({
         number: ch.number,
         title: ch.title,
         content_en: ch.content,
@@ -95,9 +117,9 @@ const Admin = () => {
     }
   };
 
-  const handleDeleteNovel = (id: string, title: string) => {
+  const handleDeleteNovel = async (id: string, title: string) => {
     if (window.confirm(`Are you sure you want to delete "${title}"?`)) {
-      deleteNovel(id);
+      await deleteNovel(id);
       refetch();
       window.dispatchEvent(new Event('novelsUpdated'));
     }
@@ -106,13 +128,13 @@ const Admin = () => {
   const handleEditNovel = (novel: Novel) => {
     setEditingNovel(novel.id);
     setEditTitle(novel.title);
-    setEditStatus(novel.status);
+    setEditStatus(novel.status || 'ongoing');
   };
 
-  const handleSaveNovel = (id: string) => {
+  const handleSaveNovel = async (id: string) => {
     const novel = novels.find(n => n.id === id);
     if (novel) {
-      updateNovel(id, { 
+      await updateNovel(id, { 
         title: editTitle, 
         status: editStatus,
         is_official: novel.is_official,
@@ -124,10 +146,10 @@ const Admin = () => {
     window.dispatchEvent(new Event('novelsUpdated'));
   };
 
-  const toggleFlag = (id: string, flag: 'is_official' | 'is_must_read') => {
+  const toggleFlag = async (id: string, flag: 'is_official' | 'is_must_read') => {
     const novel = novels.find(n => n.id === id);
     if (novel) {
-      updateNovel(id, { [flag]: !novel[flag] });
+      await updateNovel(id, { [flag]: !novel[flag] });
       refetch();
       window.dispatchEvent(new Event('novelsUpdated'));
     }
@@ -137,17 +159,35 @@ const Admin = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const base64String = reader.result as string;
-      updateNovel(novelId, { cover_url: base64String });
+    try {
+      // Upload to storage
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${novelId}-cover.${fileExt}`;
+      const filePath = `covers/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('novels')
+        .upload(filePath, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('novels')
+        .getPublicUrl(filePath);
+
+      await updateNovel(novelId, { cover_url: publicUrl });
       refetch();
       window.dispatchEvent(new Event('novelsUpdated'));
-    };
-    reader.readAsDataURL(file);
+    } catch (error) {
+      console.error('Error uploading cover:', error);
+      alert('Error uploading cover image');
+    }
   };
 
-  const handleEditChapters = (novelId: string) => {
+  const handleEditChapters = async (novelId: string) => {
+    const chapters = await getChaptersByNovelId(novelId);
+    setNovelChapters(prev => ({ ...prev, [novelId]: chapters }));
     setShowChapterEditor(novelId);
   };
 
@@ -155,10 +195,14 @@ const Admin = () => {
     setEditingChapter({ ...chapter });
   };
 
-  const handleSaveChapter = () => {
+  const handleSaveChapter = async () => {
     if (editingChapter) {
-      updateChapter(editingChapter.id, editingChapter);
+      await updateChapter(editingChapter.id, editingChapter);
       setEditingChapter(null);
+      if (showChapterEditor) {
+        const chapters = await getChaptersByNovelId(showChapterEditor);
+        setNovelChapters(prev => ({ ...prev, [showChapterEditor]: chapters }));
+      }
       refetch();
     }
   };
@@ -166,10 +210,6 @@ const Admin = () => {
   const handleSignOut = async () => {
     await signOut();
     navigate('/');
-  };
-
-  const getChapterCount = (novelId: string) => {
-    return getChaptersByNovelId(novelId).length;
   };
 
   if (authLoading) {
@@ -255,7 +295,7 @@ const Admin = () => {
           ) : (
             <div className="space-y-4">
               {novels.map((novel) => {
-                const chapters = getChaptersByNovelId(novel.id);
+                const chapters = novelChapters[novel.id] || [];
                 return (
                   <div 
                     key={novel.id} 
@@ -332,7 +372,7 @@ const Admin = () => {
                             <p className="text-xs text-gray-500 mb-1">{novel.author}</p>
                             <div className="flex items-center gap-2">
                               <span className="text-xs text-purple-600 font-medium">
-                                {chapters.length} chapters
+                                {chapterCounts[novel.id] || 0} chapters
                               </span>
                               <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${
                                 novel.status === 'completed' 

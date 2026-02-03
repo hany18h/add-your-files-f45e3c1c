@@ -14,7 +14,7 @@ const OfficialReleasePage = () => {
     return novels
       .filter((n) => n.is_official)
       .filter((n) => n.title.toLowerCase().includes(searchQuery.toLowerCase()))
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      .sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime());
   }, [novels, searchQuery]);
 
   if (loading) {

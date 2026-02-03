@@ -45,19 +45,29 @@ const Auth = () => {
       if (isLogin) {
         const { error } = await signIn(email, password);
         if (error) {
-          setError('Invalid email or password');
+          if (error.message.includes('Invalid login credentials')) {
+            setError('Invalid email or password');
+          } else if (error.message.includes('Email not confirmed')) {
+            setError('Please verify your email before signing in');
+          } else {
+            setError(error.message);
+          }
         }
       } else {
         const { error } = await signUp(email, password);
         if (error) {
-          setError(error.message);
+          if (error.message.includes('already registered')) {
+            setError('This email is already registered. Try signing in instead.');
+          } else {
+            setError(error.message);
+          }
         } else {
-          setSuccess('Account created successfully! You can now sign in.');
+          setSuccess('Account created! Please check your email to verify your account before signing in.');
           setIsLogin(true);
         }
       }
     } catch (err) {
-      setError('An unexpected error occurred');
+      setError('An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }

@@ -1,14 +1,6 @@
 import { useState, createContext, useContext, ReactNode, useEffect } from 'react';
-
-interface User {
-  id: string;
-  email: string;
-  created_at: string;
-}
-
-interface Session {
-  user: User;
-}
+import { User, Session } from '@supabase/supabase-js';
+import { supabase } from '@/integrations/supabase/client';
 
 interface AuthContextType {
   user: User | null;
@@ -22,79 +14,96 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const ADMIN_EMAIL = 'admin@admin.com';
-const ADMIN_PASSWORD = 'admin123';
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
 
-  useEffect(() => {
-    const savedUser = localStorage.getItem('currentUser');
-    if (savedUser) {
-      const parsedUser = JSON.parse(savedUser);
-      setUser(parsedUser);
-      setSession({ user: parsedUser });
-      setIsAdmin(parsedUser.email === ADMIN_EMAIL);
+  const checkAdminRole = async (userId: string) => {
+    const { data, error } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', userId)
+      .eq('role', 'admin')
+      .maybeSingle();
+    
+    if (error) {
+      console.error('Error checking admin role:', error);
+      return false;
     }
-    setLoading(false);
+    return !!data;
+  };
+
+  useEffect(() => {
+    // Set up auth state listener FIRST
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        // Defer admin check with setTimeout to avoid deadlock
+        if (session?.user) {
+          setTimeout(() => {
+            checkAdminRole(session.user.id).then(setIsAdmin);
+          }, 0);
+        } else {
+          setIsAdmin(false);
+        }
+        
+        setLoading(false);
+      }
+    );
+
+    // THEN check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      
+      if (session?.user) {
+        checkAdminRole(session.user.id).then(setIsAdmin);
+      }
+      
+      setLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const signUp = async (email: string, password: string) => {
-    const users = JSON.parse(localStorage.getItem('users') || '[]');
+    const redirectUrl = `${window.location.origin}/`;
     
-    if (users.find((u: any) => u.email === email)) {
-      return { error: new Error('Email already registered') };
-    }
-
-    const newUser = { 
-      id: Date.now().toString(), 
-      email, 
+    const { error } = await supabase.auth.signUp({
+      email,
       password,
-      created_at: new Date().toISOString()
-    };
-    users.push(newUser);
-    localStorage.setItem('users', JSON.stringify(users));
+      options: {
+        emailRedirectTo: redirectUrl
+      }
+    });
     
+    if (error) {
+      return { error: new Error(error.message) };
+    }
     return { error: null };
   };
 
   const signIn = async (email: string, password: string) => {
-    if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
-      const adminUser = { 
-        id: 'admin', 
-        email: ADMIN_EMAIL,
-        created_at: new Date().toISOString()
-      };
-      setUser(adminUser);
-      setSession({ user: adminUser });
-      setIsAdmin(true);
-      localStorage.setItem('currentUser', JSON.stringify(adminUser));
-      return { error: null };
-    }
-
-    const users = JSON.parse(localStorage.getItem('users') || '[]');
-    const foundUser = users.find((u: any) => u.email === email && u.password === password);
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
     
-    if (!foundUser) {
-      return { error: new Error('Invalid email or password') };
+    if (error) {
+      return { error: new Error(error.message) };
     }
-
-    const userData = { id: foundUser.id, email: foundUser.email, created_at: foundUser.created_at };
-    setUser(userData);
-    setSession({ user: userData });
-    setIsAdmin(false);
-    localStorage.setItem('currentUser', JSON.stringify(userData));
     return { error: null };
   };
 
   const signOut = async () => {
+    await supabase.auth.signOut();
     setUser(null);
     setSession(null);
     setIsAdmin(false);
-    localStorage.removeItem('currentUser');
   };
 
   return (

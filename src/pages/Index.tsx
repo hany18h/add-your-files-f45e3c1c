@@ -13,11 +13,17 @@ const Index = () => {
   const [chapterCounts, setChapterCounts] = useState<{ [key: string]: number }>({});
 
   useEffect(() => {
-    const counts: { [key: string]: number } = {};
-    novels.forEach(novel => {
-      counts[novel.id] = getChaptersByNovelId(novel.id).length;
-    });
-    setChapterCounts(counts);
+    async function loadChapterCounts() {
+      const counts: { [key: string]: number } = {};
+      for (const novel of novels) {
+        const chapters = await getChaptersByNovelId(novel.id);
+        counts[novel.id] = chapters.length;
+      }
+      setChapterCounts(counts);
+    }
+    if (novels.length > 0) {
+      loadChapterCounts();
+    }
   }, [novels]);
 
   useEffect(() => {
@@ -27,7 +33,7 @@ const Index = () => {
   }, [refetch]);
 
   const newArrivals = novels
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime())
     .slice(0, 9);
 
   const popularNovels = novels
