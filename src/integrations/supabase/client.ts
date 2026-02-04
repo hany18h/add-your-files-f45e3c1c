@@ -3,7 +3,20 @@ import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// Lovable Cloud provides `VITE_SUPABASE_PUBLISHABLE_KEY`.
+// Keep `VITE_SUPABASE_ANON_KEY` as a fallback for other setups.
+const SUPABASE_ANON_KEY =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  import.meta.env.VITE_SUPABASE_ANON_KEY ||
+  '';
+
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  // Avoid hard-crashing the app; surface a clear error for debugging.
+  // This usually means env vars are missing in the hosting provider.
+  console.error(
+    '[Auth] Missing backend env vars. Expected VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.'
+  );
+}
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
