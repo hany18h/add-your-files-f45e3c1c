@@ -75,10 +75,12 @@ const Index = () => {
             className="h-16 mx-auto mb-4"
           />
           <h2 className="text-lg font-bold text-[#CCCCFF] mb-1" style={{ fontFamily: 'Georgia, serif' }}>
-            YOUR GATEAWAY TO FREE NOVEL
+            YOUR GATEWAY TO FREE NOVEL
           </h2>
           <p className="text-xs text-gray-500">
-            Search from thousands of manga titles and find your perfect match
+            Search from thousands of manga titles
+            <br />
+            and find your perfect match
           </p>
         </div>
 
