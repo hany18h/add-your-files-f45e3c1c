@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ChevronLeft, Upload, Trash2, Book, LogOut, Edit2, Check, X, Languages, FileText } from 'lucide-react';
+import { ChevronLeft, Upload, Trash2, Book, LogOut, Edit2, Check, X, Languages, FileText, Plus } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { 
   useNovels, 
@@ -28,12 +28,16 @@ const Admin = () => {
   const [editingNovel, setEditingNovel] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editStatus, setEditStatus] = useState<'ongoing' | 'completed'>('ongoing');
-   const [editDescription, setEditDescription] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editAuthor, setEditAuthor] = useState('');
+  const [editGenre, setEditGenre] = useState('');
   const [showChapterEditor, setShowChapterEditor] = useState<string | null>(null);
   const [editingChapter, setEditingChapter] = useState<Chapter | null>(null);
   const [chapterCounts, setChapterCounts] = useState<{ [key: string]: number }>({});
   const [novelChapters, setNovelChapters] = useState<{ [key: string]: Chapter[] }>({});
-   const [uploadLanguage, setUploadLanguage] = useState<'en' | 'id'>('en');
+  const [uploadLanguage, setUploadLanguage] = useState<'en' | 'id'>('en');
+  const [addLanguageToNovel, setAddLanguageToNovel] = useState<string | null>(null);
+  const addLanguageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!authLoading && (!user || !isAdmin)) {
@@ -56,7 +60,8 @@ const Admin = () => {
     }
   }, [novels]);
 
-   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, language: 'en' | 'id' = uploadLanguage) => {
+  // Upload new EPUB as a new novel
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, language: 'en' | 'id' = uploadLanguage) => {
     const file = e.target.files?.[0];
     if (!file || !file.name.endsWith('.epub')) {
       alert('Please select a valid EPUB file');
@@ -69,13 +74,49 @@ const Admin = () => {
     try {
       const parsed = await parseEpubFile(file);
       
-      setUploadProgress(`Found ${parsed.chapters.length} chapters. Creating novel...`);
+      setUploadProgress(`Found ${parsed.chapters.length} chapters. Uploading cover...`);
+
+      // Upload cover to storage if exists
+      let coverUrl: string | null = null;
+      if (parsed.coverUrl) {
+        try {
+          // Convert base64 to blob
+          const base64Match = parsed.coverUrl.match(/^data:image\/([^;]+);base64,(.+)$/);
+          if (base64Match) {
+            const mimeExt = base64Match[1];
+            const base64Data = base64Match[2];
+            const byteCharacters = atob(base64Data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: `image/${mimeExt}` });
+            
+            const fileName = `covers/${Date.now()}-cover.${mimeExt}`;
+            const { error: uploadError } = await supabase.storage
+              .from('novels')
+              .upload(fileName, blob, { upsert: true });
+            
+            if (!uploadError) {
+              const { data: { publicUrl } } = supabase.storage
+                .from('novels')
+                .getPublicUrl(fileName);
+              coverUrl = publicUrl;
+            }
+          }
+        } catch (coverError) {
+          console.error('Error uploading cover:', coverError);
+        }
+      }
+
+      setUploadProgress('Creating novel...');
 
       const novel = await addNovel({
         title: parsed.title,
         author: parsed.author,
-        cover_url: parsed.coverUrl,
-         description: parsed.description || null,
+        cover_url: coverUrl,
+        description: parsed.description || null,
         genre: [],
         status: 'ongoing',
         is_official: false,
@@ -88,14 +129,14 @@ const Admin = () => {
 
       setUploadProgress('Adding chapters...');
 
-       await addChapters(novel.id, parsed.chapters.map(ch => ({
-         number: ch.number,
-         title: ch.title,
-         content_en: language === 'en' ? ch.content : null,
-         content_id: language === 'id' ? ch.content : null,
-         epub_en_url: null,
-         epub_id_url: null,
-       })));
+      await addChapters(novel.id, parsed.chapters.map(ch => ({
+        number: ch.number,
+        title: ch.title,
+        content_en: language === 'en' ? ch.content : null,
+        content_id: language === 'id' ? ch.content : null,
+        epub_en_url: null,
+        epub_id_url: null,
+      })));
 
       setUploadProgress('Done!');
       
@@ -119,6 +160,73 @@ const Admin = () => {
     }
   };
 
+  // Add another language to an existing novel
+  const handleAddLanguageToNovel = async (e: React.ChangeEvent<HTMLInputElement>, novelId: string, language: 'en' | 'id') => {
+    const file = e.target.files?.[0];
+    if (!file || !file.name.endsWith('.epub')) {
+      alert('Please select a valid EPUB file');
+      return;
+    }
+
+    setUploading(true);
+    setUploadProgress('Parsing EPUB file...');
+
+    try {
+      const parsed = await parseEpubFile(file);
+      const existingChapters = await getChaptersByNovelId(novelId);
+      
+      setUploadProgress(`Updating ${parsed.chapters.length} chapters with ${language === 'en' ? 'English' : 'Indonesian'} content...`);
+
+      const contentField = language === 'en' ? 'content_en' : 'content_id';
+
+      for (const parsedChapter of parsed.chapters) {
+        const existingChapter = existingChapters.find(c => c.number === parsedChapter.number);
+        
+        if (existingChapter) {
+          // Update existing chapter with new language content
+          await updateChapter(existingChapter.id, {
+            [contentField]: parsedChapter.content,
+          });
+        } else {
+          // Create new chapter if it doesn't exist
+          await addChapters(novelId, [{
+            number: parsedChapter.number,
+            title: parsedChapter.title,
+            content_en: language === 'en' ? parsedChapter.content : null,
+            content_id: language === 'id' ? parsedChapter.content : null,
+            epub_en_url: null,
+            epub_id_url: null,
+          }]);
+        }
+      }
+
+      setUploadProgress('Done!');
+      setAddLanguageToNovel(null);
+      
+      refetch();
+      window.dispatchEvent(new Event('novelsUpdated'));
+      
+      // Reload chapter counts
+      const chapters = await getChaptersByNovelId(novelId);
+      setChapterCounts(prev => ({ ...prev, [novelId]: chapters.length }));
+      
+      setTimeout(() => {
+        setUploading(false);
+        setUploadProgress('');
+      }, 1000);
+
+    } catch (error) {
+      console.error('Error parsing EPUB:', error);
+      alert('Error parsing EPUB file. Please try another file.');
+      setUploading(false);
+      setUploadProgress('');
+    }
+
+    if (addLanguageInputRef.current) {
+      addLanguageInputRef.current.value = '';
+    }
+  };
+
   const handleDeleteNovel = async (id: string, title: string) => {
     if (window.confirm(`Are you sure you want to delete "${title}"?`)) {
       await deleteNovel(id);
@@ -131,7 +239,9 @@ const Admin = () => {
     setEditingNovel(novel.id);
     setEditTitle(novel.title);
     setEditStatus(novel.status || 'ongoing');
-     setEditDescription(novel.description || '');
+    setEditDescription(novel.description || '');
+    setEditAuthor(novel.author || '');
+    setEditGenre(novel.genre?.join(', ') || '');
   };
 
   const handleSaveNovel = async (id: string) => {
@@ -140,7 +250,9 @@ const Admin = () => {
       await updateNovel(id, { 
         title: editTitle, 
         status: editStatus,
-         description: editDescription,
+        description: editDescription,
+        author: editAuthor,
+        genre: editGenre.split(',').map(g => g.trim()).filter(g => g.length > 0),
         is_official: novel.is_official,
         is_must_read: novel.is_must_read
       });
@@ -370,13 +482,27 @@ const Admin = () => {
                               className="w-full text-sm px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-purple-500 outline-none"
                               placeholder="Novel Title"
                             />
-                             <textarea
-                               value={editDescription}
-                               onChange={(e) => setEditDescription(e.target.value)}
-                               className="w-full text-xs px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-purple-500 outline-none resize-none"
-                               placeholder="Description..."
-                               rows={2}
-                             />
+                            <input
+                              type="text"
+                              value={editAuthor}
+                              onChange={(e) => setEditAuthor(e.target.value)}
+                              className="w-full text-sm px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-purple-500 outline-none"
+                              placeholder="Author Name"
+                            />
+                            <input
+                              type="text"
+                              value={editGenre}
+                              onChange={(e) => setEditGenre(e.target.value)}
+                              className="w-full text-sm px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-purple-500 outline-none"
+                              placeholder="Genres (comma separated: Fantasy, Romance)"
+                            />
+                            <textarea
+                              value={editDescription}
+                              onChange={(e) => setEditDescription(e.target.value)}
+                              className="w-full text-xs px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-purple-500 outline-none resize-none"
+                              placeholder="Description..."
+                              rows={2}
+                            />
                             <div className="flex items-center gap-2">
                               <select
                                 value={editStatus}
@@ -425,6 +551,15 @@ const Admin = () => {
                               </span>
                             </div>
                           <div className="flex items-center gap-2 mt-2">
+                              {/* Add Language Button */}
+                              <button
+                                onClick={() => setAddLanguageToNovel(addLanguageToNovel === novel.id ? null : novel.id)}
+                                className={`text-[10px] px-2 py-1 rounded font-bold uppercase transition-colors flex items-center gap-1 ${
+                                  addLanguageToNovel === novel.id ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-600 hover:bg-purple-200'
+                                }`}
+                              >
+                                <Plus className="w-3 h-3" /> Add Language
+                              </button>
                               <button
                                 onClick={() => toggleFlag(novel.id, 'is_official')}
                                 className={`text-[10px] px-2 py-1 rounded font-bold uppercase transition-colors ${
@@ -442,6 +577,45 @@ const Admin = () => {
                                 Must Read
                               </button>
                             </div>
+
+                            {/* Add Language Section */}
+                            {addLanguageToNovel === novel.id && (
+                              <div className="mt-3 p-3 bg-purple-50 rounded-lg border border-purple-200">
+                                <p className="text-xs font-semibold text-purple-700 mb-2">
+                                  Upload EPUB to add another language:
+                                </p>
+                                <div className="flex gap-2">
+                                  <label className="flex-1 cursor-pointer">
+                                    <input
+                                      ref={addLanguageInputRef}
+                                      type="file"
+                                      accept=".epub"
+                                      className="hidden"
+                                      onChange={(e) => handleAddLanguageToNovel(e, novel.id, 'en')}
+                                      disabled={uploading}
+                                    />
+                                    <div className="text-center py-2 px-3 bg-white border border-purple-300 rounded-lg hover:bg-purple-100 transition-colors">
+                                      <span className="text-xs font-medium text-purple-600">+ English EPUB</span>
+                                    </div>
+                                  </label>
+                                  <label className="flex-1 cursor-pointer">
+                                    <input
+                                      type="file"
+                                      accept=".epub"
+                                      className="hidden"
+                                      onChange={(e) => handleAddLanguageToNovel(e, novel.id, 'id')}
+                                      disabled={uploading}
+                                    />
+                                    <div className="text-center py-2 px-3 bg-white border border-purple-300 rounded-lg hover:bg-purple-100 transition-colors">
+                                      <span className="text-xs font-medium text-purple-600">+ Indonesian EPUB</span>
+                                    </div>
+                                  </label>
+                                </div>
+                                {uploading && (
+                                  <p className="text-xs text-purple-600 mt-2 text-center">{uploadProgress}</p>
+                                )}
+                              </div>
+                            )}
                           </>
                         )}
                       </div>
