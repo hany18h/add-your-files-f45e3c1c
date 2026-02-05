@@ -28,10 +28,12 @@ const Admin = () => {
   const [editingNovel, setEditingNovel] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editStatus, setEditStatus] = useState<'ongoing' | 'completed'>('ongoing');
+   const [editDescription, setEditDescription] = useState('');
   const [showChapterEditor, setShowChapterEditor] = useState<string | null>(null);
   const [editingChapter, setEditingChapter] = useState<Chapter | null>(null);
   const [chapterCounts, setChapterCounts] = useState<{ [key: string]: number }>({});
   const [novelChapters, setNovelChapters] = useState<{ [key: string]: Chapter[] }>({});
+   const [uploadLanguage, setUploadLanguage] = useState<'en' | 'id'>('en');
 
   useEffect(() => {
     if (!authLoading && (!user || !isAdmin)) {
@@ -54,7 +56,7 @@ const Admin = () => {
     }
   }, [novels]);
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, language: 'en' | 'id' = uploadLanguage) => {
     const file = e.target.files?.[0];
     if (!file || !file.name.endsWith('.epub')) {
       alert('Please select a valid EPUB file');
@@ -73,7 +75,7 @@ const Admin = () => {
         title: parsed.title,
         author: parsed.author,
         cover_url: parsed.coverUrl,
-        description: null,
+         description: parsed.description || null,
         genre: [],
         status: 'ongoing',
         is_official: false,
@@ -86,14 +88,14 @@ const Admin = () => {
 
       setUploadProgress('Adding chapters...');
 
-      await addChapters(novel.id, parsed.chapters.map(ch => ({
-        number: ch.number,
-        title: ch.title,
-        content_en: ch.content,
-        content_id: null,
-        epub_en_url: null,
-        epub_id_url: null,
-      })));
+       await addChapters(novel.id, parsed.chapters.map(ch => ({
+         number: ch.number,
+         title: ch.title,
+         content_en: language === 'en' ? ch.content : null,
+         content_id: language === 'id' ? ch.content : null,
+         epub_en_url: null,
+         epub_id_url: null,
+       })));
 
       setUploadProgress('Done!');
       
@@ -129,6 +131,7 @@ const Admin = () => {
     setEditingNovel(novel.id);
     setEditTitle(novel.title);
     setEditStatus(novel.status || 'ongoing');
+     setEditDescription(novel.description || '');
   };
 
   const handleSaveNovel = async (id: string) => {
@@ -137,6 +140,7 @@ const Admin = () => {
       await updateNovel(id, { 
         title: editTitle, 
         status: editStatus,
+         description: editDescription,
         is_official: novel.is_official,
         is_must_read: novel.is_must_read
       });
@@ -252,11 +256,42 @@ const Admin = () => {
           </h2>
           
           <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-purple-400 transition-colors">
+             {/* Language Selection for Upload */}
+             <div className="mb-4">
+               <label className="text-sm font-semibold text-gray-700 mb-2 block">
+                 Select EPUB Language:
+               </label>
+               <div className="flex justify-center gap-3">
+                 <button
+                   type="button"
+                   onClick={() => setUploadLanguage('en')}
+                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                     uploadLanguage === 'en'
+                       ? 'bg-purple-600 text-white'
+                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                   }`}
+                 >
+                   English
+                 </button>
+                 <button
+                   type="button"
+                   onClick={() => setUploadLanguage('id')}
+                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                     uploadLanguage === 'id'
+                       ? 'bg-purple-600 text-white'
+                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                   }`}
+                 >
+                   Indonesia
+                 </button>
+               </div>
+             </div>
+ 
             <input
               ref={fileInputRef}
               type="file"
               accept=".epub"
-              onChange={handleFileSelect}
+               onChange={(e) => handleFileSelect(e, uploadLanguage)}
               className="hidden"
               id="epub-upload"
               disabled={uploading}
@@ -335,6 +370,13 @@ const Admin = () => {
                               className="w-full text-sm px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-purple-500 outline-none"
                               placeholder="Novel Title"
                             />
+                             <textarea
+                               value={editDescription}
+                               onChange={(e) => setEditDescription(e.target.value)}
+                               className="w-full text-xs px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-purple-500 outline-none resize-none"
+                               placeholder="Description..."
+                               rows={2}
+                             />
                             <div className="flex items-center gap-2">
                               <select
                                 value={editStatus}

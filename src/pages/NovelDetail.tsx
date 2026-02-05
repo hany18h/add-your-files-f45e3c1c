@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ChevronLeft, Book, Languages, Eye, Heart, Home, Bookmark, Search, User } from 'lucide-react';
-import { useNovelDetails, incrementViewCount } from '@/hooks/useNovels';
-import { useFavorites } from '@/hooks/useFavorites';
-import { useAuth } from '@/hooks/useAuth';
+ import { useState, useEffect } from 'react';
+ import { useParams, useNavigate, Link } from 'react-router-dom';
+ import { ChevronLeft, Book, Eye, Heart, Home, Bookmark, Search, User, ChevronRight } from 'lucide-react';
+ import { useNovelDetails, incrementViewCount } from '@/hooks/useNovels';
+ import { useFavorites } from '@/hooks/useFavorites';
+ import { useAuth } from '@/hooks/useAuth';
+ import DescriptionPopup from '@/components/DescriptionPopup';
 
 const NovelDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -13,6 +14,7 @@ const NovelDetail = () => {
   const { isFavorite, toggleFavorite } = useFavorites();
   const [selectedLanguage, setSelectedLanguage] = useState<'en' | 'id'>('en');
   const [togglingFavorite, setTogglingFavorite] = useState(false);
+   const [showDescriptionPopup, setShowDescriptionPopup] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -62,9 +64,22 @@ const NovelDetail = () => {
 
   const handleReadClick = (lang: 'en' | 'id') => {
     setSelectedLanguage(lang);
-    navigate(`/read/${id}?lang=${lang}`);
+     // Navigate directly to first chapter
+     const firstChapter = chapters[0];
+     if (firstChapter) {
+       navigate(`/read/${id}?lang=${lang}&chapter=${firstChapter.number}`);
+     } else {
+       navigate(`/read/${id}?lang=${lang}`);
+     }
   };
 
+   // Truncate description for display
+   const truncatedDescription = novel.description 
+     ? novel.description.length > 100 
+       ? novel.description.substring(0, 100) + '...'
+       : novel.description
+     : null;
+ 
   return (
     <div className="min-h-screen bg-white pb-20">
       <header className="sticky top-0 z-50 bg-white border-b border-gray-100">
@@ -133,67 +148,56 @@ const NovelDetail = () => {
           </div>
         </div>
 
-        {novel.description && (
-          <div className="mb-6">
-            <h3 className="text-sm font-semibold mb-2 text-gray-800">Synopsis</h3>
-            <p className="text-sm text-gray-600 leading-relaxed">
-              {novel.description}
-            </p>
+         {/* Truncated Description with popup trigger */}
+         {truncatedDescription && (
+           <button
+             onClick={() => setShowDescriptionPopup(true)}
+             className="w-full text-left mb-6 group"
+           >
+             <p className="text-sm text-gray-600 leading-relaxed">
+               {truncatedDescription}
+               <span className="inline-flex items-center text-purple-600 ml-1 group-hover:underline">
+                 <ChevronRight className="w-4 h-4" />
+               </span>
+             </p>
+           </button>
+         )}
+ 
+         {/* Description Popup */}
+         <DescriptionPopup
+           open={showDescriptionPopup}
+           onOpenChange={setShowDescriptionPopup}
+           title={novel.title}
+           description={novel.description || ''}
+           author={novel.author}
+           genre={novel.genre}
+         />
+ 
+         {/* Language Selection - Full width buttons */}
+         <div className="space-y-3 mb-6">
+           {(hasEnglish || chapters.length > 0) && (
+             <button
+               onClick={() => handleReadClick('en')}
+               className="w-full flex items-center justify-center gap-2 py-4 rounded-xl font-semibold transition-all bg-purple-600 text-white hover:bg-purple-700"
+             >
+               Read in English
+             </button>
+           )}
+           {hasIndonesian && (
+             <button
+               onClick={() => handleReadClick('id')}
+               className="w-full flex items-center justify-center gap-2 py-4 rounded-xl font-semibold transition-all bg-gray-200 text-gray-700 hover:bg-gray-300"
+             >
+               Baca dalam Bahasa Indonesia
+             </button>
+           )}
+         </div>
+ 
+         {/* Show chapter count info */}
+         <div className="text-center text-sm text-gray-500">
+           <Book className="w-4 h-4 inline mr-1" />
+           {chapters.length} Chapters available
           </div>
-        )}
-
-        <div className="bg-gray-50 rounded-xl p-4 mb-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Languages className="w-5 h-5 text-purple-600" />
-            <h3 className="font-semibold text-gray-800">Choose Language</h3>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            {(hasEnglish || chapters.length > 0) && (
-              <button
-                onClick={() => handleReadClick('en')}
-                className="flex items-center justify-center gap-2 py-3 rounded-xl font-semibold transition-all bg-purple-600 text-white"
-              >
-                English
-              </button>
-            )}
-            {hasIndonesian && (
-              <button
-                onClick={() => handleReadClick('id')}
-                className="flex items-center justify-center gap-2 py-3 rounded-xl font-semibold transition-all bg-gray-200 text-gray-700 hover:bg-gray-300"
-              >
-                Indonesia
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div>
-          <h3 className="font-semibold mb-3 text-gray-800">Chapters</h3>
-          <div className="space-y-2">
-            {chapters.map((chapter) => (
-              <button
-                key={chapter.id}
-                onClick={() => navigate(`/read/${id}?lang=${selectedLanguage}&chapter=${chapter.number}`)}
-                className="w-full flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors text-left"
-              >
-                <div>
-                  <span className="text-xs text-purple-600 font-semibold">
-                    Chapter {chapter.number}
-                  </span>
-                  <p className="text-sm font-medium text-gray-700">{chapter.title}</p>
-                </div>
-                <ChevronLeft className="w-4 h-4 rotate-180 text-gray-400" />
-              </button>
-            ))}
-            
-            {chapters.length === 0 && (
-              <p className="text-center py-8 text-gray-500">
-                No chapters available yet
-              </p>
-            )}
-          </div>
-        </div>
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 py-2 px-6">

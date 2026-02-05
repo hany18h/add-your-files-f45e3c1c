@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { ChevronLeft, Settings, ChevronRight, List } from 'lucide-react';
+ import { ChevronLeft, Settings, ChevronRight, List } from 'lucide-react';
 import { useNovelDetails } from '@/hooks/useNovels';
+ import ChapterListSheet from '@/components/ChapterListSheet';
 
 type ReadingMode = 'vertical' | 'horizontal';
 
@@ -118,12 +119,25 @@ const Reader = () => {
     <div className="min-h-screen bg-white">
       <header className="sticky top-0 z-50 bg-white border-b border-gray-100">
         <div className="flex items-center justify-between h-12 px-4">
-          <button
-            onClick={() => navigate(`/novel/${id}`, { replace: true })}
-            className="p-2 -ml-2 text-gray-600"
-          >
-            <ChevronLeft className="w-5 h-5" />
-          </button>
+           <div className="flex items-center gap-1">
+             <button
+               onClick={() => navigate(`/novel/${id}`, { replace: true })}
+               className="p-2 -ml-2 text-gray-600"
+             >
+               <ChevronLeft className="w-5 h-5" />
+             </button>
+             <ChapterListSheet
+               chapters={chapters}
+               currentChapterNumber={chapterNumber}
+               novelId={id || ''}
+               language={language}
+               onChapterSelect={(num) => {
+                 navigate(`/read/${id}?lang=${language}&chapter=${num}`);
+                 setCurrentPage(0);
+                 window.scrollTo(0, 0);
+               }}
+             />
+           </div>
           <div className="text-center flex-1 min-w-0 px-2">
             <p className="text-xs text-gray-500 truncate">
               Chapter {chapter.number}: {chapter.title}
