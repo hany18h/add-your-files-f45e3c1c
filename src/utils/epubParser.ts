@@ -9,6 +9,7 @@ export interface ParsedChapter {
 export interface ParsedEpub {
   title: string;
   author: string;
+   description: string | null;
   chapters: ParsedChapter[];
   coverUrl: string | null;
 }
@@ -19,6 +20,7 @@ export async function parseEpubFile(file: File): Promise<ParsedEpub> {
   
   let title = file.name.replace('.epub', '');
   let author = 'Unknown Author';
+   let description: string | null = null;
   let coverUrl: string | null = null;
   const chapters: ParsedChapter[] = [];
 
@@ -49,6 +51,13 @@ export async function parseEpubFile(file: File): Promise<ParsedEpub> {
       author = authorMatch[1];
     }
 
+     // Extract description
+     const descriptionMatch = opfContent.match(/<dc:description[^>]*>([\s\S]*?)<\/dc:description>/i);
+     if (descriptionMatch) {
+       // Clean HTML tags from description
+       description = descriptionMatch[1].replace(/<[^>]+>/g, '').trim();
+     }
+ 
     const coverIdMatch = opfContent.match(/name="cover"\s+content="([^"]+)"/i);
     if (coverIdMatch) {
       const coverId = coverIdMatch[1];
@@ -140,5 +149,5 @@ export async function parseEpubFile(file: File): Promise<ParsedEpub> {
     }
   }
 
-  return { title, author, chapters, coverUrl };
+   return { title, author, description, chapters, coverUrl };
 }
